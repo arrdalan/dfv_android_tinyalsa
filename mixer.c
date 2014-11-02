@@ -43,6 +43,7 @@
 #include <sound/asound.h>
 
 #include <tinyalsa/asoundlib.h>
+#include <utils/dfv.h>
 
 struct mixer_ctl {
     struct mixer *mixer;
@@ -55,7 +56,36 @@ struct mixer {
     struct snd_ctl_elem_info *info;
     struct mixer_ctl *ctl;
     unsigned int count;
+    int orig_fd;
+    unsigned int card;
+    int remote_in_use;
 };
+
+static void get_remote_mixer(struct mixer *mixer)
+{
+    int fd;
+    char fn[256];
+    
+    if (mixer->remote_in_use) {
+    	return;
+    }
+    
+    snprintf(fn, sizeof(fn), "/dev/snd/controlC%u2", mixer->card);    
+    
+    if (!file_present(fn)) {
+    	return;
+    }
+    
+    
+    fd = open(fn, O_RDWR);
+    if (fd < 0) {
+        return;
+    }
+    
+    mixer->orig_fd = mixer->fd;
+    mixer->fd = fd;
+    mixer->remote_in_use = 1;
+}
 
 void mixer_close(struct mixer *mixer)
 {
@@ -98,9 +128,10 @@ struct mixer *mixer_open(unsigned int card)
     char fn[256];
 
     snprintf(fn, sizeof(fn), "/dev/snd/controlC%u", card);
+    
     fd = open(fn, O_RDWR);
     if (fd < 0)
-        return 0;
+        return 0;    
 
     memset(&elist, 0, sizeof(elist));
     if (ioctl(fd, SNDRV_CTL_IOCTL_ELEM_LIST, &elist) < 0)
@@ -109,6 +140,8 @@ struct mixer *mixer_open(unsigned int card)
     mixer = calloc(1, sizeof(*mixer));
     if (!mixer)
         goto fail;
+    
+    mixer->card = card;
 
     mixer->ctl = calloc(elist.count, sizeof(struct mixer_ctl));
     mixer->info = calloc(elist.count, sizeof(struct snd_ctl_elem_info));
@@ -288,6 +321,8 @@ int mixer_ctl_get_value(struct mixer_ctl *ctl, unsigned int id)
     struct snd_ctl_elem_value ev;
     int ret;
 
+    get_remote_mixer(ctl->mixer);    
+
     if (!ctl || (id >= ctl->info->count))
         return -EINVAL;
 
@@ -321,6 +356,8 @@ int mixer_ctl_set_value(struct mixer_ctl *ctl, unsigned int id, int value)
 {
     struct snd_ctl_elem_value ev;
     int ret;
+
+    get_remote_mixer(ctl->mixer);    
 
     if (!ctl || (id >= ctl->info->count))
         return -EINVAL;
@@ -396,6 +433,8 @@ int mixer_ctl_set_enum_by_string(struct mixer_ctl *ctl, const char *string)
     unsigned int i, num_enums;
     struct snd_ctl_elem_value ev;
     int ret;
+
+    get_remote_mixer(ctl->mixer);    
 
     if (!ctl || (ctl->info->type != SNDRV_CTL_ELEM_TYPE_ENUMERATED))
         return -EINVAL;

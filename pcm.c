@@ -47,6 +47,7 @@
 #include <sound/asound.h>
 
 #include <tinyalsa/asoundlib.h>
+#include <utils/dfv.h>
 
 #define PARAM_MAX SNDRV_PCM_HW_PARAM_LAST_INTERVAL
 #define SNDRV_PCM_HW_PARAMS_NO_PERIOD_WAKEUP (1<<2)
@@ -473,9 +474,14 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
         return &bad_pcm; /* TODO: could support default config here */
 
     pcm->config = *config;
-
-    snprintf(fn, sizeof(fn), "/dev/snd/pcmC%uD%u%c", card, device,
+    
+    snprintf(fn, sizeof(fn), "/dev/snd/pcmC%uD%u%c2", card, device,
              flags & PCM_IN ? 'c' : 'p');
+    
+    if (!file_present(fn)) {
+        snprintf(fn, sizeof(fn), "/dev/snd/pcmC%uD%u%c", card, device,
+                 flags & PCM_IN ? 'c' : 'p');
+    }
 
     pcm->flags = flags;
     pcm->fd = open(fn, O_RDWR);
@@ -536,6 +542,7 @@ struct pcm *pcm_open(unsigned int card, unsigned int device,
         pcm->mmap_buffer = mmap(NULL, pcm_frames_to_bytes(pcm, pcm->buffer_size),
                                 PROT_READ | PROT_WRITE, MAP_FILE | MAP_SHARED, pcm->fd, 0);
         if (pcm->mmap_buffer == MAP_FAILED) {
+    
             oops(pcm, -errno, "failed to mmap buffer %d bytes\n",
                  pcm_frames_to_bytes(pcm, pcm->buffer_size));
             goto fail_close;
